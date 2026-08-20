@@ -25,6 +25,8 @@ class ContentAgent(Agent):
     ) -> dict[str, str]:
         """주제 {topic_title}, 포맷 {content_format}, 지침 {playbook_guidance}로 작성한다.
 
-        반환: {"hook": 훅 한 문장, "body": 본문, "media_spec_json": 렌더 스펙 JSON 문자열}
+        반환: {"hook": 훅 한 문장, "body": 본문,
+               "hook_pattern": bold_claim|curiosity|story|shock|question 중 하나,
+               "media_spec_json": 렌더 스펙 JSON 문자열}
         """
         ...

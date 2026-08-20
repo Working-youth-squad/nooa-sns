@@ -53,8 +53,16 @@ class OrchestratorAgent(Agent):
     async def run_cycle(self, goal_ref: str, platform: str, content_format: str) -> dict[str, str]:
         """목표 {goal_ref}, 플랫폼 {platform}, 포맷 {content_format}로 한 사이클을 완주한다.
 
-        반환: {"status": "completed"|"partial"|"failed",
-               "topic_title": 선정 주제, "post_id": 발행 ID(미발행 시 빈 문자열),
-               "next_variant": 다음 사이클 변형}
+        발행이 승인 보류(ApprovalPending)로 막히면 실패가 아니다 — post_id를
+        빈 문자열로 두고 status "partial"로 계속한다(승인 후 재개는 코드 몫).
+
+        반환(전부 문자열, 없으면 빈 문자열):
+        {"status": "completed"|"partial"|"failed",
+         "topic_title": 선정 주제, "topic_rationale": 선정 근거,
+         "hook_pattern": bold_claim|curiosity|story|shock|question,
+         "body": 훅 포함 최종 본문, "media_spec_json": 렌더 스펙 JSON,
+         "storage_url": 렌더 산출 URL, "checksum": 렌더 체크섬,
+         "post_id": 발행 ID, "analysis_note": 분석글,
+         "insufficient_evidence": "true"|"false", "next_variant": 다음 변형}
         """
         ...

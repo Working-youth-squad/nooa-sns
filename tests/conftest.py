@@ -9,8 +9,10 @@ import sys
 if sys.platform == "win32":
     collect_ignore = [
         "helpers.py",
+        "cycle_fixtures.py",
         "test_determinism.py",
         "test_tool_surface.py",
         "test_event_bridge.py",
         "test_full_cycle.py",
+        "test_runner.py",
     ]

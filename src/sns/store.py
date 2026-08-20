@@ -51,6 +51,10 @@ class CycleStore(Protocol):
         quality_report: Mapping[str, object] | None,
     ) -> str: ...
     def create_publication(self, *, content_item_id: str, channel_id: str) -> str: ...
+    def mark_published(self, publication_id: str, *, external_post_id: str) -> None: ...
+    def save_analysis_note(
+        self, *, cycle_id: str, body: str, insufficient_evidence: bool
+    ) -> str: ...
     def complete_cycle(self, cycle_id: str, *, status: CycleStatus) -> None: ...
     def log_event(
         self,
@@ -71,6 +75,7 @@ class InMemoryCycleStore:
         self.content_items: dict[str, dict[str, object]] = {}
         self.media_assets: dict[str, dict[str, object]] = {}
         self.publications: dict[str, dict[str, object]] = {}
+        self.analysis_notes: dict[str, dict[str, object]] = {}
         self.events: list[dict[str, object]] = []
         self._seq = 0
 
@@ -140,6 +145,19 @@ class InMemoryCycleStore:
             "status": "pending",
         }
         return pid
+
+    def mark_published(self, publication_id: str, *, external_post_id: str) -> None:
+        self.publications[publication_id]["status"] = "published"
+        self.publications[publication_id]["external_post_id"] = external_post_id
+
+    def save_analysis_note(self, *, cycle_id: str, body: str, insufficient_evidence: bool) -> str:
+        nid = self._id("note")
+        self.analysis_notes[nid] = {
+            "cycle_id": cycle_id,
+            "body": body,
+            "insufficient_evidence": insufficient_evidence,
+        }
+        return nid
 
     def complete_cycle(self, cycle_id: str, *, status: CycleStatus) -> None:
         self.cycles[cycle_id]["status"] = status
@@ -228,6 +246,20 @@ class PgCycleStore:
         return self._scalar(
             "INSERT INTO publication (content_item_id, channel_id) VALUES (%s, %s) RETURNING id",
             (content_item_id, channel_id),
+        )
+
+    def mark_published(self, publication_id: str, *, external_post_id: str) -> None:
+        self._conn.execute(
+            "UPDATE publication SET status = 'published', external_post_id = %s, "
+            "published_at = now() WHERE id = %s",
+            (external_post_id, publication_id),
+        )
+
+    def save_analysis_note(self, *, cycle_id: str, body: str, insufficient_evidence: bool) -> str:
+        return self._scalar(
+            "INSERT INTO analysis_note (cycle_id, body, insufficient_evidence) "
+            "VALUES (%s, %s, %s) RETURNING id",
+            (cycle_id, body, insufficient_evidence),
         )
 
     def complete_cycle(self, cycle_id: str, *, status: CycleStatus) -> None:
