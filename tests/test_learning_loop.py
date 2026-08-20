@@ -76,8 +76,16 @@ def test_null_reward_settles_but_excludes_from_learning(db, seed) -> None:  # ty
 
 
 class FixedReward:
-    def __call__(self, values: Mapping[str, float | None], *, goal_ref: str) -> float | None:
+    def __call__(
+        self,
+        values: Mapping[str, float | None],
+        *,
+        goal_ref: str,
+        platform: str,
+        publication_id: str,
+    ) -> float | None:
         assert values.get("reach") is not None, "정산 입력에 적재 지표가 와야 함"
+        assert platform == "instagram" and publication_id
         return 2.5
 
 

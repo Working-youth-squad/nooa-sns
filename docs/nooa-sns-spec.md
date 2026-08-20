@@ -142,6 +142,10 @@
 3. **상한 수치**(#6): `max_iterations`·사이클 위임 예산·cost cap 값 — M1 실측 후 사전등록.
 4. **원본 승계 미결정**(#7): 스케줄 방식(상주 러너 vs GHA cron)·영상 렌더러(ffmpeg vs Remotion)·TTS 엔진.
 5. **002 마이그레이션 채택 여부**: run_event 확장 컬럼 vs 기존 payload 컬럼 활용.
+6. **reward 산식 계수**(FR-L2): 팀 사전등록 대기. **임시안 가배치(2026-08-20 사용자 결정)** —
+   `interim-baseline-v1`(`sns/learning/reward.py`): goal 1차 신호의 자기 베이스라인
+   중앙값 대비 비율 평균, 표본<5=보류(NULL), 비율 상한 10배. formula_version이
+   reward 행에 남아 확정 산식 등록 후 임시분 식별·재정산 가능.
 
 **반증선(Phase 0 게이트, NFR-5)**: (a) Fake 주입 결정론 green (b) 샌드박스 내 CodeAct 사이클 dry-run 관통 (c) DB 쓰기 경로 계약 밖 유출 0 (d) 버전 고정+어댑터 격리 확인 — 미통과 시 deepagents 원안 또는 자작 thin loop 폴백.
 

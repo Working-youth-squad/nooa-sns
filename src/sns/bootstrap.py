@@ -36,8 +36,9 @@ from sns.agents.topic import TopicAgent
 from sns.approval import ApprovalGate, ChannelMode, approve_publication
 from sns.config import Config
 from sns.crypto import TokenCipher
-from sns.learning.loop import NullReward, poll_and_store, settle_rewards
+from sns.learning.loop import RewardFn, poll_and_store, settle_rewards
 from sns.learning.playbook import PgWritePlaybook
+from sns.learning.reward import InterimBaselineReward
 from sns.notify.discord import discord_sender_from_env
 from sns.publish.dispatch import PlatformDispatch
 from sns.publish.runner import run_pending_publications
@@ -203,15 +204,18 @@ def build_poll_metrics(
     return YouTubeMetrics(build_youtube_analytics(load_credentials(client_secret, token)))
 
 
-def run_metrics_slot(conn: psycopg.Connection, poll_metrics: Any) -> tuple[int, int]:
-    """지표 슬롯 1회: 도래 창 폴링·적재 → reward 정산(NullReward=판정 보류).
+def run_metrics_slot(
+    conn: psycopg.Connection, poll_metrics: Any, *, reward_fn: RewardFn | None = None
+) -> tuple[int, int]:
+    """지표 슬롯 1회: 도래 창 폴링·적재 → reward 정산.
 
-    반환: (폴링한 창 수, 정산한 publication 수). 산식 계수 사전등록 후
-    reward_fn만 교체하면 학습이 켜진다(spec §7 미결정 유지).
+    기본 산식 = InterimBaselineReward(**팀 사전등록 전 임시안**, 사용자 결정 2026-08-20):
+    자기 베이스라인 중앙값 대비 비율, 표본<5=보류. formula_version이 행에 남아
+    확정 산식 등록 후 임시분 식별·재정산 가능. 반환: (폴링 창 수, 정산 수).
     """
-    reward_fn = NullReward()
+    fn: Any = reward_fn if reward_fn is not None else InterimBaselineReward(conn)
     outcomes = poll_and_store(conn, poll_metrics)
-    settled = settle_rewards(conn, reward_fn, formula_version=reward_fn.formula_version)
+    settled = settle_rewards(conn, fn, formula_version=fn.formula_version)
     return len(outcomes), settled
 
 

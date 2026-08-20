@@ -27,15 +27,29 @@ SETTLE_WINDOW_INDEX = 2
 class RewardFn(Protocol):
     """지표 dict → reward 값. None=판정 보류(학습 제외, FR-L2)."""
 
-    def __call__(self, values: Mapping[str, float | None], *, goal_ref: str) -> float | None: ...
+    def __call__(
+        self,
+        values: Mapping[str, float | None],
+        *,
+        goal_ref: str,
+        platform: Platform,
+        publication_id: str,
+    ) -> float | None: ...
 
 
 class NullReward:
-    """기본 산식 — 계수 사전등록 전까지 전부 NULL(정직한 판정 보류)."""
+    """전량 보류 산식 — 학습을 완전히 끌 때(K2 폴백 등) 쓴다."""
 
     formula_version = "null-v0"
 
-    def __call__(self, values: Mapping[str, float | None], *, goal_ref: str) -> float | None:
+    def __call__(
+        self,
+        values: Mapping[str, float | None],
+        *,
+        goal_ref: str,
+        platform: Platform,
+        publication_id: str,
+    ) -> float | None:
         return None
 
 
@@ -183,7 +197,9 @@ def settle_rewards(
                 (observation_id,),
             ).fetchall()
         }
-        reward_value = reward_fn(values, goal_ref=str(goal_ref))
+        reward_value = reward_fn(
+            values, goal_ref=str(goal_ref), platform=platform, publication_id=str(pub_id)
+        )
         with conn.transaction():
             conn.execute(
                 "INSERT INTO reward (publication_id, reward_value, formula_version) "
