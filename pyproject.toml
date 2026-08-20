@@ -10,6 +10,7 @@ requires-python = ">=3.12,<3.14"
 dependencies = [
     "cryptography>=44",
     # NFR-5: Alpha API 변동 흡수 — 정확 버전 고정, 업그레이드는 어댑터(FR-C8) 수정 PR로만
+    "fastapi>=0.141.1",
     "google-api-python-client>=2.198.0",
     "google-auth-oauthlib>=1.4.0",
     "google-cloud-texttospeech>=2.37.0",
@@ -17,6 +18,7 @@ dependencies = [
     "nooa==0.0.9",
     "pillow>=12.3.0",
     "psycopg[binary]>=3.2",
+    "uvicorn>=0.52.4",
 ]
 
 [build-system]

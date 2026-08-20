@@ -33,7 +33,7 @@ from sns.agents.media import MediaAgent
 from sns.agents.orchestrator import OrchestratorAgent
 from sns.agents.publisher import PublisherAgent
 from sns.agents.topic import TopicAgent
-from sns.approval import ApprovalGate, ChannelMode
+from sns.approval import ApprovalGate, ChannelMode, approve_publication
 from sns.config import Config
 from sns.crypto import TokenCipher
 from sns.learning.loop import NullReward, poll_and_store, settle_rewards
@@ -282,59 +282,159 @@ async def run_slot(
     return result
 
 
-def main() -> None:
-    """상주 러너/cron 공용 CLI — 슬롯 1회 실행. (스케줄 방식은 미결정 #7)
+@dataclass(frozen=True)
+class ChannelContext:
+    """CLI 서브커맨드가 공유하는 채널별 조립 결과."""
 
-    필요 env: DATABASE_URL, APP_ENCRYPTION_KEY, ANTHROPIC_API_KEY,
+    channel: ChannelRow
+    adapters: Publish
+    media_store: InMemoryMediaStore
+
+
+def _build_channel_context(
+    conn: psycopg.Connection, cipher: TokenCipher, args: Any
+) -> ChannelContext:
+    channel = load_channel(conn, platform=args.platform, handle=args.handle)
+    media_store = InMemoryMediaStore()  # ponytail: LocalDirMediaStore(공개 base_url)로 교체 지점
+    adapters = build_platform_publish(
+        channel=channel, cipher=cipher, media_bytes=media_store.blobs.__getitem__
+    )
+    return ChannelContext(channel=channel, adapters=adapters, media_store=media_store)
+
+
+def _cmd_cycle(conn: psycopg.Connection, cipher: TokenCipher, args: Any) -> None:
+    ctx = _build_channel_context(conn, cipher, args)
+    notify = discord_sender_from_env()
+    tools = ToolSet(
+        research_trends=default_service(),
+        read_stats=PgReadStats(conn),
+        render_media=KindDispatchRender(card=CardRenderMedia(ctx.media_store)),
+        publish=build_agent_publish_tool(
+            conn, channel=ctx.channel, inner=ctx.adapters, notify=_as_text_notify(notify)
+        ),
+        poll_metrics=build_poll_metrics(channel=ctx.channel, cipher=cipher),
+        write_playbook=PgWritePlaybook(conn),
+    )
+    orchestrator = build_orchestrator(tools, llm=make_llm("judgment"))
+    target = CycleTarget(
+        channel_id=ctx.channel.id,
+        platform=ctx.channel.platform,
+        content_format=args.format,
+        media_kind="image" if args.format == "feed_image" else "video",
+        mode=ctx.channel.mode,
+    )
+    result = asyncio.run(
+        run_slot(
+            conn=conn,
+            orchestrator=orchestrator,
+            goal_ref=args.goal,
+            target=target,
+            batch_publish=ctx.adapters,
+        )
+    )
+    print(f"cycle={result.cycle_id} published={result.published}")
+
+
+def _cmd_metrics(conn: psycopg.Connection, cipher: TokenCipher, args: Any) -> None:
+    channel = load_channel(conn, platform=args.platform, handle=args.handle)
+    polled, settled = run_metrics_slot(conn, build_poll_metrics(channel=channel, cipher=cipher))
+    print(f"polled_windows={polled} settled_rewards={settled}")
+
+
+def _cmd_publish_pending(conn: psycopg.Connection, cipher: TokenCipher, args: Any) -> None:
+    ctx = _build_channel_context(conn, cipher, args)
+    results = run_pending_publications(conn, ctx.adapters)
+    for r in results:
+        print(f"{r.publication_id}: {r.outcome}")
+    print(f"total={len(results)}")
+
+
+def _cmd_approve(conn: psycopg.Connection, cipher: TokenCipher, args: Any) -> None:
+    summary = approve_publication(conn, args.publication_id)
+    print(
+        f"approved: content={summary['content_approved']} media={summary['media_passed']} "
+        f"— 발행은 `publish-pending`으로"
+    )
+
+
+def _cmd_resident(conn: psycopg.Connection, cipher: TokenCipher, args: Any) -> None:
+    """상주 러너 — 슬롯마다 사이클→발행배치→지표정산. (스케줄 방식 미결정 #7의 한 축)"""
+    from datetime import UTC as _UTC
+    from datetime import datetime as _dt
+    from datetime import time as _time
+
+    from sns.scheduler import SlotSchedule, run_resident
+
+    slots = tuple(
+        _time(int(part.split(":")[0]), int(part.split(":")[1]))
+        for part in str(args.slots).split(",")
+    )
+    schedule = SlotSchedule(slots=slots)
+
+    async def trigger(slot: Any) -> None:
+        print(f"slot fired: {slot}")
+        _cmd_cycle(conn, cipher, args)
+        _cmd_metrics(conn, cipher, args)
+
+    async def loop() -> None:
+        await run_resident(
+            schedule,
+            trigger,
+            clock=lambda: _dt.now(tz=_UTC),
+            sleep=asyncio.sleep,
+            until=lambda: False,
+        )
+
+    asyncio.run(loop())
+
+
+def main() -> None:
+    """운영 CLI. 필요 env: DATABASE_URL, APP_ENCRYPTION_KEY, LLM 키(SNS_LLM_* 참조),
     IG_USER_ID(인스타) 또는 YT_CLIENT_SECRET/YT_TOKEN(유튜브),
-    DISCORD_WEBHOOK_URL(선택), SNS_SANDBOX=1(샌드박스 내 필수).
-    """
+    DISCORD_WEBHOOK_URL(선택), SNS_SANDBOX=1(샌드박스 내 필수)."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="nooa-sns 슬롯 1회 실행")
-    parser.add_argument("--platform", required=True, choices=["instagram", "youtube"])
-    parser.add_argument("--handle", required=True)
-    parser.add_argument("--format", default="feed_image", choices=["feed_image", "reels", "shorts"])
-    parser.add_argument("--goal", default="follower_growth")
-    args = parser.parse_args()
+    parser = argparse.ArgumentParser(description="nooa-sns 운영 CLI")
+    sub = parser.add_subparsers(dest="command", required=True)
 
+    def channel_args(p: Any) -> None:
+        p.add_argument("--platform", required=True, choices=["instagram", "youtube"])
+        p.add_argument("--handle", required=True)
+
+    p_cycle = sub.add_parser("cycle", help="사이클 1회(기획→제작→착지) + 대기 발행 배치")
+    channel_args(p_cycle)
+    p_cycle.add_argument(
+        "--format", default="feed_image", choices=["feed_image", "reels", "shorts"]
+    )
+    p_cycle.add_argument("--goal", default="follower_growth")
+    p_cycle.set_defaults(func=_cmd_cycle)
+
+    p_metrics = sub.add_parser("metrics", help="지표 창 폴링·적재 + reward 정산")
+    channel_args(p_metrics)
+    p_metrics.set_defaults(func=_cmd_metrics)
+
+    p_pending = sub.add_parser("publish-pending", help="대기 발행 배치(승인 재개 포함, 멱등)")
+    channel_args(p_pending)
+    p_pending.set_defaults(func=_cmd_publish_pending)
+
+    p_approve = sub.add_parser("approve", help="hybrid 승인 — needs_review→발행 가능 상태로")
+    p_approve.add_argument("--publication-id", required=True)
+    p_approve.set_defaults(func=_cmd_approve)
+
+    p_resident = sub.add_parser("resident", help="상주 러너 — 슬롯마다 cycle+metrics")
+    channel_args(p_resident)
+    p_resident.add_argument("--slots", default="09:00,18:00", help="UTC HH:MM 콤마 구분")
+    p_resident.add_argument(
+        "--format", default="feed_image", choices=["feed_image", "reels", "shorts"]
+    )
+    p_resident.add_argument("--goal", default="follower_growth")
+    p_resident.set_defaults(func=_cmd_resident)
+
+    args = parser.parse_args()
     config = Config.from_env()
     cipher = TokenCipher.from_config(config)
     with psycopg.connect(config.database_url, autocommit=True) as conn:
-        channel = load_channel(conn, platform=args.platform, handle=args.handle)
-        notify = discord_sender_from_env()
-        media_store = InMemoryMediaStore()  # ponytail: 외부 스토리지(공개 URL) 교체 지점
-        adapters = build_platform_publish(
-            channel=channel, cipher=cipher, media_bytes=media_store.blobs.__getitem__
-        )
-        tools = ToolSet(
-            research_trends=default_service(),
-            read_stats=PgReadStats(conn),
-            render_media=KindDispatchRender(card=CardRenderMedia(media_store)),
-            publish=build_agent_publish_tool(
-                conn, channel=channel, inner=adapters, notify=_as_text_notify(notify)
-            ),
-            poll_metrics=build_poll_metrics(channel=channel, cipher=cipher),
-            write_playbook=PgWritePlaybook(conn),
-        )
-        orchestrator = build_orchestrator(tools, llm=make_llm("judgment"))
-        target = CycleTarget(
-            channel_id=channel.id,
-            platform=channel.platform,
-            content_format=args.format,
-            media_kind="image" if args.format == "feed_image" else "video",
-            mode=channel.mode,
-        )
-        result = asyncio.run(
-            run_slot(
-                conn=conn,
-                orchestrator=orchestrator,
-                goal_ref=args.goal,
-                target=target,
-                batch_publish=adapters,
-            )
-        )
-        print(f"cycle={result.cycle_id} published={result.published}")
+        args.func(conn, cipher, args)
 
 
 def _as_text_notify(

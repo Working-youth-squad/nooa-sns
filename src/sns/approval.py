@@ -60,3 +60,29 @@ class ApprovalGate:
 # 타입체크: 게이트가 Publish 계약을 구조적으로 만족함을 강제
 def _check_gate(gate: ApprovalGate) -> Publish:
     return gate
+
+
+def approve_publication(conn: object, publication_id: str) -> dict[str, int]:
+    """승인 재개 (FR-O2) — needs_review 산출물을 발행 가능 상태로 전환.
+
+    content_item(needs_review→approved) + media_asset(needs_review→passed)만 바꾼다.
+    실발행은 이후 `publish-pending` 배치가 멱등 상태머신으로 수행한다.
+    conn은 psycopg autocommit 커넥션(덕타이핑 — 이 모듈은 psycopg 무의존 유지).
+    """
+    row = conn.execute(  # type: ignore[attr-defined]
+        "SELECT content_item_id FROM publication WHERE id = %s", (publication_id,)
+    ).fetchone()
+    if row is None:
+        raise LookupError(f"publication 없음: {publication_id}")
+    content_item_id = row[0]
+    with conn.transaction():  # type: ignore[attr-defined]
+        content = conn.execute(  # type: ignore[attr-defined]
+            "UPDATE content_item SET status = 'approved' WHERE id = %s AND status = 'needs_review'",
+            (content_item_id,),
+        ).rowcount
+        media = conn.execute(  # type: ignore[attr-defined]
+            "UPDATE media_asset SET quality_status = 'passed' "
+            "WHERE content_item_id = %s AND quality_status = 'needs_review'",
+            (content_item_id,),
+        ).rowcount
+    return {"content_approved": content, "media_passed": media}
