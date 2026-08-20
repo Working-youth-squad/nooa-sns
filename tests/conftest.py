@@ -7,4 +7,10 @@ CI(ubuntu)가 전체 스위트의 정본 검증 환경이다.
 import sys
 
 if sys.platform == "win32":
-    collect_ignore = ["helpers.py", "test_determinism.py", "test_tool_surface.py"]
+    collect_ignore = [
+        "helpers.py",
+        "test_determinism.py",
+        "test_tool_surface.py",
+        "test_event_bridge.py",
+        "test_full_cycle.py",
+    ]
