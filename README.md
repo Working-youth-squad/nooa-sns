@@ -20,6 +20,11 @@ NOOA(CodeAct) 기반 멀티에이전트 SNS 성장 엔진 — [multiagent-sns](h
   ```
 - ⚠️ **ruff PIE790 금지**(pyproject에 ignore 고정) — NOOA 생성 메서드의 `...` 본문을 삭제해 탐지가 조용히 꺼진다.
 - 반증선 테스트: `tests/test_determinism.py`(a 결정론) · `tests/test_tool_surface.py`(c 표면/시크릿) · `tests/test_adapter_isolation.py`(d 어댑터 격리)
+- **실 LLM 스모크**: `cp .env.example .env`로 키(OPENAI_API_KEY 등) 채운 뒤
+  ```
+  docker compose run --rm app uv run python -m sns.smoke
+  ```
+  모델은 `.env`의 `SNS_LLM_JUDGMENT`/`SNS_LLM_BULK`(LiteLLM ID)로 교체 — 기본 예시는 최저가 `gpt-5-nano`.
 
 ## 핵심 결정 (2026-08-20)
 

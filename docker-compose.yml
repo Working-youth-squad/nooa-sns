@@ -19,6 +19,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    env_file:
+      - path: .env # 로컬 시크릿(OPENAI_API_KEY 등) — gitignore됨
+        required: false
     environment:
       SNS_SANDBOX: "1" # FR-S1 게이트 선언 — 이 컨테이너 안에서만 CodeAct 실행
       DATABASE_URL: postgresql://sns:sns@db:5432/sns

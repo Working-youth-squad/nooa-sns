@@ -1,0 +1,12 @@
+# 시크릿 — 절대 커밋 금지 (HARNESS 규칙 6)
+.env
+secrets/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+dist/

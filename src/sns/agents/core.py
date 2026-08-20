@@ -7,6 +7,7 @@ LLM 캐스케이딩(NFR-1): 프로덕션은 make_llm(), 테스트는 FakeLLMClie
 인스턴스 생성자 llm= 로 주입한다 — 에이전트 코드는 어느 쪽인지 모른다.
 """
 
+import os
 from typing import Literal
 
 from nooa.agent import Agent
@@ -43,6 +44,12 @@ _ROLE_MODELS: dict[str, str] = {
     "bulk": "gemini/gemini-2.5-flash",
 }
 
+# env 오버라이드(LiteLLM 모델 ID) — 저비용 테스트용 모델 교체(예: gpt-5-nano).
+_ROLE_ENV: dict[str, str] = {
+    "judgment": "SNS_LLM_JUDGMENT",
+    "bulk": "SNS_LLM_BULK",
+}
+
 LlmRole = Literal["judgment", "bulk"]
 
 
@@ -52,5 +59,9 @@ def codeact(max_iterations: int = DEFAULT_MAX_ITERATIONS) -> CodeActStrategy:
 
 
 def make_llm(role: LlmRole) -> UnifiedLLM:
-    """역할별 프로덕션 LLM 클라이언트. API 키 부재 시 즉시 실패(fail-fast, FR-C3)."""
-    return get_llm_client(_ROLE_MODELS[role])
+    """역할별 LLM 클라이언트 — env(SNS_LLM_JUDGMENT/BULK)로 모델 오버라이드 가능.
+
+    API 키 부재 시 즉시 실패(fail-fast, FR-C3). 장애 시 역할 간 교차 대체 금지.
+    """
+    model = os.environ.get(_ROLE_ENV[role]) or _ROLE_MODELS[role]
+    return get_llm_client(model)
