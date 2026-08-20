@@ -19,9 +19,7 @@ from sns.tools.fakes import FakeReadStats, FakeResearchTrends
 async def main() -> None:
     assert_sandboxed()  # 실 LLM CodeAct = 생성 코드 실행 — 샌드박스 밖 금지
     llm = make_llm("judgment")
-    agent = TopicAgent(
-        research_trends=FakeResearchTrends(), read_stats=FakeReadStats(), llm=llm
-    )
+    agent = TopicAgent(research_trends=FakeResearchTrends(), read_stats=FakeReadStats(), llm=llm)
     result = await agent.pick_topic("호기심 훅 우선. 트렌드 결과에 실재하는 소재만 골라라.")
     print(f"SMOKE OK — model={llm.model!r} 선택 주제: {result}")
 
