@@ -11,6 +11,16 @@ NOOA(CodeAct) 기반 멀티에이전트 SNS 성장 엔진 — [multiagent-sns](h
 | [docs/nooa-sns-spec.md](docs/nooa-sns-spec.md) | **상세기획 spec** — FR/NFR · 데이터모델 · 예외/테스트 · 미결정 |
 | [docs/diagrams/](docs/diagrams/) | 발행 사이클 · 학습 루프 시퀀스, 운영자 유저플로우 (Mermaid) |
 
+## 개발 워크플로 (Phase 0)
+
+- 스택: Python 3.12 · uv · `nooa==0.0.9`(고정) · pytest/ruff/mypy strict
+- ⚠️ **nooa는 Linux/macOS 전용**(`fcntl` 의존) — Windows에선 Docker로 실행:
+  ```
+  docker build -t nooa-sns-test . && docker run --rm nooa-sns-test
+  ```
+- ⚠️ **ruff PIE790 금지**(pyproject에 ignore 고정) — NOOA 생성 메서드의 `...` 본문을 삭제해 탐지가 조용히 꺼진다.
+- 반증선 테스트: `tests/test_determinism.py`(a 결정론) · `tests/test_tool_surface.py`(c 표면/시크릿) · `tests/test_adapter_isolation.py`(d 어댑터 격리)
+
 ## 핵심 결정 (2026-08-20)
 
 - 7개 에이전트(Orchestrator·Topic·Content·Media·Publisher·Analyst·Growth) **전부 CodeAct**
