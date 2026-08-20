@@ -12,8 +12,10 @@ dependencies = [
     # NFR-5: Alpha API 변동 흡수 — 정확 버전 고정, 업그레이드는 어댑터(FR-C8) 수정 PR로만
     "google-api-python-client>=2.198.0",
     "google-auth-oauthlib>=1.4.0",
+    "google-cloud-texttospeech>=2.37.0",
     "httpx>=0.28.1",
     "nooa==0.0.9",
+    "pillow>=12.3.0",
     "psycopg[binary]>=3.2",
 ]
 
@@ -42,6 +44,14 @@ target-version = "py312"
 # PIE790 금지: NOOA 생성 메서드는 docstring 뒤 `...` 본문이 프레임워크 계약 —
 # 이 규칙이 `...`를 삭제하면 생성 메서드 탐지가 조용히 꺼진다 (2026-08-20 실사고).
 ignore = ["PIE790"]
+
+[tool.ruff.lint.per-file-ignores]
+# 원본 multiagent-sns 무수정 이식분 — 의도된 패턴(장애 삼킴 불변식·수동 returncode 처리)
+"src/sns/notify/dispatch.py" = ["BLE001"]
+"src/sns/research/trends.py" = ["BLE001"]
+"src/sns/research/sources/naver_datalab.py" = ["DTZ011"]
+"src/sns/render/video/*.py" = ["PLW1510", "RUF028", "ISC004"]
+"tests/test_notify_discord.py" = ["PYI034"]
 
 [tool.mypy]
 python_version = "3.12"

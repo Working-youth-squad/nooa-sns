@@ -26,6 +26,12 @@ if sys.platform == "win32":
         "test_event_bridge.py",
         "test_full_cycle.py",
         "test_runner.py",
+        # sns.notify는 cause.py가 어댑터(sns.agents.core→nooa)를 임포트
+        "test_bootstrap.py",
+        "test_notify_cause.py",
+        "test_notify_discord.py",
+        "test_notify_dispatch.py",
+        "test_notify_pg_sink.py",
     ]
 
 DSN = os.environ.get("DATABASE_URL", "postgresql://sns:sns@localhost:5432/sns")
