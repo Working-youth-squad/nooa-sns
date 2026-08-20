@@ -74,10 +74,11 @@ def test_yt_credentials_db_roundtrip(db, monkeypatch) -> None:  # type: ignore[n
 
     def fake_refresh(self, request) -> None:  # type: ignore[no-untyped-def]
         # 실제 refresh와 동일하게 token+만료시각을 함께 갱신한다
-        from datetime import datetime, timedelta
+        # (google-auth의 expiry는 naive UTC — tz 없는 utcnow 형태가 맞다)
+        from datetime import UTC, datetime, timedelta
 
         self.token = "refreshed-tok"
-        self.expiry = datetime.utcnow() + timedelta(hours=1)
+        self.expiry = datetime.now(tz=UTC).replace(tzinfo=None) + timedelta(hours=1)
 
     monkeypatch.setattr(Credentials, "refresh", fake_refresh)
     creds = ensure_credentials(
