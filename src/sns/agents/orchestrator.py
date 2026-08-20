@@ -22,9 +22,24 @@ class OrchestratorAgent(Agent):
     """너는 발행 사이클의 오케스트레이터다.
 
     한 사이클 = 주제 선정 → 콘텐츠 작성 → 미디어 렌더 → 발행 → 분석 → 다음 변형.
-    순서·병렬화·실패 대응은 네가 계획한다. 서브에이전트:
-    self.topic / self.content / self.media / self.publisher / self.analyst / self.growth.
+    순서·병렬화·실패 대응은 네가 계획한다.
     서브에이전트 하나가 실패해도 사이클 전체를 죽이지 말고 격리·기록 후 진행을 판단한다.
+
+    서브에이전트 위임 API — 반드시 이 정확한 메서드명·시그니처로만 호출한다:
+      t = await self.topic.pick_topic(playbook_guidance: str)
+          -> {"title": str, "rationale": str}
+      c = await self.content.write_content(topic_title: str, content_format: str,
+          playbook_guidance: str)
+          -> {"hook": str, "body": str, "hook_pattern": str, "media_spec_json": str}
+      m = await self.media.produce(media_spec_json: str, kind: str)
+          -> {"storage_url": str, "checksum": str}
+      p = await self.publisher.publish_item(platform: str, caption: str,
+          idempotency_key: str, storage_url: str, checksum: str, kind: str)
+          -> {"post_id": str, "error": str}
+      a = await self.analyst.analyze(platform: str, post_id: str, window_index: int)
+          -> {"analysis_note": str, "insufficient_evidence": str}
+      g = await self.growth.choose_variant(goal_ref: str)
+          -> {"variant": str, "rationale": str}
     """
 
     def __init__(

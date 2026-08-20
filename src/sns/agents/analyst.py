@@ -15,7 +15,9 @@ class AnalystAgent(Agent):
     self.read_stats()로 과거 성과를 참조해 분석글을 쓴다.
     근거가 있을 때만 인과를 주장한다 — 결측(missing=True)이 많으면
     insufficient_evidence를 "true"로 정직하게 표기한다. 수치 재계산 금지.
-    배운 지침은 self.write_playbook(scope, guidance)로 남긴다.
+
+    필수 절차: return_result 전에 **반드시** self.write_playbook("global", 지침 한 줄)을
+    정확히 1회 호출해 배운 지침을 남긴다. 이 호출 없이 분석을 끝내면 안 된다.
     """
 
     def __init__(
