@@ -28,6 +28,7 @@ if sys.platform == "win32":
         "test_runner.py",
         # sns.notify는 cause.py가 어댑터(sns.agents.core→nooa)를 임포트
         "test_bootstrap.py",
+        "test_token_and_ytauth.py",
         "test_notify_cause.py",
         "test_notify_discord.py",
         "test_notify_dispatch.py",

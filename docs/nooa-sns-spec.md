@@ -140,7 +140,9 @@
 1. **결정론 테스트 전략**(#4): 이벤트 리플레이 vs 골든 이벤트 로그 비교 — NFR-1 판정 방식. Phase 0 스파이크에서 확정.
 2. **hybrid 승인 관문 구현**(#5): NOOA Channel/JobHandle 활용 vs DB 폴링 — FR-O2.
 3. **상한 수치**(#6): `max_iterations`·사이클 위임 예산·cost cap 값 — M1 실측 후 사전등록.
-4. **원본 승계 미결정**(#7): 스케줄 방식(상주 러너 vs GHA cron)·영상 렌더러(ffmpeg vs Remotion)·TTS 엔진.
+4. **원본 승계 미결정**(#7): 스케줄 방식(상주 러너 vs GHA cron — `resident` CLI로 상주 축은 구현됨)·TTS 엔진.
+   영상 렌더러는 **ffmpeg+ASS로 실용 확정(2026-08-20)**: 원본 스파이크 구현이 실재·테스트 green,
+   Remotion은 미착수 — 구현 실재 기준. 팀 이견 시 재론.
 5. **002 마이그레이션 채택 여부**: run_event 확장 컬럼 vs 기존 payload 컬럼 활용.
 6. **reward 산식 계수**(FR-L2): 팀 사전등록 대기. **임시안 가배치(2026-08-20 사용자 결정)** —
    `interim-baseline-v1`(`sns/learning/reward.py`): goal 1차 신호의 자기 베이스라인

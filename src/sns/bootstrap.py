@@ -24,6 +24,7 @@ from sns.adapters.instagram import InstagramPublish
 from sns.adapters.instagram.metrics import InstagramInsights
 from sns.adapters.youtube import YouTubePublish, build_youtube, load_credentials
 from sns.adapters.youtube.auth import build_youtube_analytics
+from sns.adapters.youtube.auth_db import ensure_credentials
 from sns.adapters.youtube.metrics import YouTubeMetrics
 from sns.agents.analyst import AnalystAgent
 from sns.agents.content import ContentAgent
@@ -162,12 +163,28 @@ def quality_check_sql(conn: psycopg.Connection) -> Callable[[str], bool]:
     return check
 
 
+def _yt_credentials(
+    *,
+    channel: ChannelRow,
+    cipher: TokenCipher,
+    env: Mapping[str, str],
+    conn: psycopg.Connection | None,
+) -> Any:
+    """YT 자격 확보 — DB 암호화 저장(auth_db) 우선, conn 없으면 파일 플로우 폴백."""
+    client_secret = Path(env.get("YT_CLIENT_SECRET", "secrets/yt_client_secret.json"))
+    if conn is not None:
+        return ensure_credentials(conn, cipher, channel.id, client_secret=client_secret)
+    token = Path(env.get("YT_TOKEN", "secrets/yt_token.json"))
+    return load_credentials(client_secret, token)
+
+
 def build_platform_publish(
     *,
     channel: ChannelRow,
     cipher: TokenCipher,
     env: Mapping[str, str] | None = None,
     media_bytes: Callable[[str], bytes] | None = None,
+    conn: psycopg.Connection | None = None,
 ) -> Publish:
     """채널 플랫폼에 맞는 실 어댑터 디스패처. 필요한 설정 부재 시 fail-fast."""
     env = os.environ if env is None else env
@@ -180,11 +197,9 @@ def build_platform_publish(
             ig_user_id=ig_user_id, access_token=token_provider(cipher, channel)
         )
     else:
-        client_secret = Path(env.get("YT_CLIENT_SECRET", "secrets/yt_client_secret.json"))
-        token = Path(env.get("YT_TOKEN", "secrets/yt_token.json"))
         if media_bytes is None:
             raise ValueError("youtube 발행에는 media_bytes(스토리지 조회 seam)가 필요")
-        youtube = build_youtube(load_credentials(client_secret, token))
+        youtube = build_youtube(_yt_credentials(channel=channel, cipher=cipher, env=env, conn=conn))
         routes["youtube"] = YouTubePublish(youtube, media_bytes=media_bytes)
     return PlatformDispatch(routes)
 
@@ -194,14 +209,50 @@ def build_poll_metrics(
     channel: ChannelRow,
     cipher: TokenCipher,
     env: Mapping[str, str] | None = None,
+    conn: psycopg.Connection | None = None,
 ) -> Any:
     """채널 플랫폼의 지표 폴러 (PollMetrics 계약, FR-L1)."""
     env = os.environ if env is None else env
     if channel.platform == "instagram":
         return InstagramInsights(access_token=token_provider(cipher, channel))
-    client_secret = Path(env.get("YT_CLIENT_SECRET", "secrets/yt_client_secret.json"))
-    token = Path(env.get("YT_TOKEN", "secrets/yt_token.json"))
-    return YouTubeMetrics(build_youtube_analytics(load_credentials(client_secret, token)))
+    return YouTubeMetrics(
+        build_youtube_analytics(_yt_credentials(channel=channel, cipher=cipher, env=env, conn=conn))
+    )
+
+
+def build_render_media(store: Any, *, env: Mapping[str, str] | None = None) -> RenderMedia:
+    """렌더 디스패처 — 카드=항상, 영상=TTS 키 있을 때 등록.
+
+    영상 렌더러는 **ffmpeg+ASS로 실용 확정**(spec 미결정 #7 갱신): 원본 스파이크
+    구현이 실재하고 테스트 green인 반면 Remotion은 미착수 — 구현 실재 기준 채택.
+    """
+    from sns.render.video.media import VideoRenderMedia
+    from sns.render.video.tts import ENV_TTS_API_KEY, synthesize_google
+
+    env = os.environ if env is None else env
+    video: RenderMedia | None = None
+    if env.get(ENV_TTS_API_KEY):
+        video = VideoRenderMedia(store, synthesize=synthesize_google)
+    return KindDispatchRender(card=CardRenderMedia(store), video=video)
+
+
+def save_channel_token(
+    conn: psycopg.Connection,
+    cipher: TokenCipher,
+    *,
+    platform: Platform,
+    handle: str,
+    token_plain: str,
+) -> None:
+    """채널 토큰 등록 — 암호화 저장(NFR-4). 평문은 이 함수 스코프에서만 존재."""
+    encrypted, version = cipher.encrypt(token_plain)
+    updated = conn.execute(
+        "UPDATE channel SET token_encrypted = %s, token_key_version = %s "
+        "WHERE platform = %s AND handle = %s",
+        (encrypted, version, platform, handle),
+    ).rowcount
+    if updated != 1:
+        raise LookupError(f"채널 없음: {platform}/{handle}")
 
 
 def run_metrics_slot(
@@ -301,7 +352,7 @@ def _build_channel_context(
     channel = load_channel(conn, platform=args.platform, handle=args.handle)
     media_store = InMemoryMediaStore()  # ponytail: LocalDirMediaStore(공개 base_url)로 교체 지점
     adapters = build_platform_publish(
-        channel=channel, cipher=cipher, media_bytes=media_store.blobs.__getitem__
+        channel=channel, cipher=cipher, media_bytes=media_store.blobs.__getitem__, conn=conn
     )
     return ChannelContext(channel=channel, adapters=adapters, media_store=media_store)
 
@@ -312,11 +363,11 @@ def _cmd_cycle(conn: psycopg.Connection, cipher: TokenCipher, args: Any) -> None
     tools = ToolSet(
         research_trends=default_service(),
         read_stats=PgReadStats(conn),
-        render_media=KindDispatchRender(card=CardRenderMedia(ctx.media_store)),
+        render_media=build_render_media(ctx.media_store),
         publish=build_agent_publish_tool(
             conn, channel=ctx.channel, inner=ctx.adapters, notify=_as_text_notify(notify)
         ),
-        poll_metrics=build_poll_metrics(channel=ctx.channel, cipher=cipher),
+        poll_metrics=build_poll_metrics(channel=ctx.channel, cipher=cipher, conn=conn),
         write_playbook=PgWritePlaybook(conn),
     )
     orchestrator = build_orchestrator(tools, llm=make_llm("judgment"))
@@ -341,7 +392,9 @@ def _cmd_cycle(conn: psycopg.Connection, cipher: TokenCipher, args: Any) -> None
 
 def _cmd_metrics(conn: psycopg.Connection, cipher: TokenCipher, args: Any) -> None:
     channel = load_channel(conn, platform=args.platform, handle=args.handle)
-    polled, settled = run_metrics_slot(conn, build_poll_metrics(channel=channel, cipher=cipher))
+    polled, settled = run_metrics_slot(
+        conn, build_poll_metrics(channel=channel, cipher=cipher, conn=conn)
+    )
     print(f"polled_windows={polled} settled_rewards={settled}")
 
 
@@ -359,6 +412,25 @@ def _cmd_approve(conn: psycopg.Connection, cipher: TokenCipher, args: Any) -> No
         f"approved: content={summary['content_approved']} media={summary['media_passed']} "
         f"— 발행은 `publish-pending`으로"
     )
+
+
+def _cmd_set_token(conn: psycopg.Connection, cipher: TokenCipher, args: Any) -> None:
+    """채널 토큰 등록 — 평문은 env SNS_CHANNEL_TOKEN으로만 받는다(argv/셸 이력 비노출)."""
+    token_plain = os.environ.get("SNS_CHANNEL_TOKEN", "")
+    if not token_plain:
+        raise SystemExit("SNS_CHANNEL_TOKEN env에 토큰을 넣고 실행하라 (argv 금지)")
+    save_channel_token(
+        conn, cipher, platform=args.platform, handle=args.handle, token_plain=token_plain
+    )
+    print(f"token saved (encrypted): {args.platform}/{args.handle}")
+
+
+def _cmd_yt_auth(conn: psycopg.Connection, cipher: TokenCipher, args: Any) -> None:
+    """YT OAuth 대화형 발급 → DB 암호화 저장 (이후 무인 실행은 DB 자격 사용)."""
+    channel = load_channel(conn, platform=args.platform, handle=args.handle)
+    client_secret = Path(os.environ.get("YT_CLIENT_SECRET", "secrets/yt_client_secret.json"))
+    ensure_credentials(conn, cipher, channel.id, client_secret=client_secret, interactive=True)
+    print(f"YT credentials saved (encrypted): {args.platform}/{args.handle}")
 
 
 def _cmd_resident(conn: psycopg.Connection, cipher: TokenCipher, args: Any) -> None:
@@ -424,6 +496,14 @@ def main() -> None:
     p_approve = sub.add_parser("approve", help="hybrid 승인 — needs_review→발행 가능 상태로")
     p_approve.add_argument("--publication-id", required=True)
     p_approve.set_defaults(func=_cmd_approve)
+
+    p_token = sub.add_parser("set-token", help="채널 토큰 암호화 저장(SNS_CHANNEL_TOKEN env)")
+    channel_args(p_token)
+    p_token.set_defaults(func=_cmd_set_token)
+
+    p_yt = sub.add_parser("yt-auth", help="YT OAuth 대화형 발급 → DB 암호화 저장")
+    channel_args(p_yt)
+    p_yt.set_defaults(func=_cmd_yt_auth)
 
     p_resident = sub.add_parser("resident", help="상주 러너 — 슬롯마다 cycle+metrics")
     channel_args(p_resident)

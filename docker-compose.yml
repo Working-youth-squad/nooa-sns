@@ -26,3 +26,17 @@ services:
       SNS_SANDBOX: "1" # FR-S1 게이트 선언 — 이 컨테이너 안에서만 CodeAct 실행
       DATABASE_URL: postgresql://sns:sns@db:5432/sns
     command: ["uv", "run", "pytest", "-q"]
+
+  # 인사이트 탭 (read-only) — 기본 up에는 안 뜸: docker compose --profile web up web
+  web:
+    build: .
+    profiles: ["web"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://sns:sns@db:5432/sns
+      SNS_WEB_HOST: 0.0.0.0
+    ports:
+      - "8080:8080"
+    command: ["uv", "run", "python", "-m", "sns.web"]
