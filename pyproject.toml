@@ -10,6 +10,9 @@ requires-python = ">=3.12,<3.14"
 dependencies = [
     "cryptography>=44",
     # NFR-5: Alpha API 변동 흡수 — 정확 버전 고정, 업그레이드는 어댑터(FR-C8) 수정 PR로만
+    "google-api-python-client>=2.198.0",
+    "google-auth-oauthlib>=1.4.0",
+    "httpx>=0.28.1",
     "nooa==0.0.9",
     "psycopg[binary]>=3.2",
 ]
@@ -29,6 +32,7 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100
@@ -49,6 +53,11 @@ packages = ["sns"]
 module = "nooa.*"
 ignore_missing_imports = true
 follow_untyped_imports = false
+
+# 구글 API 클라이언트도 스텁 미제공 — 어댑터 경계에서만 완화 (원본 관례 동일).
+[[tool.mypy.overrides]]
+module = ["googleapiclient.*", "google_auth_oauthlib.*", "google.*"]
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "sns.agents.*"
