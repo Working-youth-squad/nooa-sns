@@ -21,7 +21,10 @@ from typing import Any
 import psycopg
 
 from sns.adapters.instagram import InstagramPublish
+from sns.adapters.instagram.metrics import InstagramInsights
 from sns.adapters.youtube import YouTubePublish, build_youtube, load_credentials
+from sns.adapters.youtube.auth import build_youtube_analytics
+from sns.adapters.youtube.metrics import YouTubeMetrics
 from sns.agents.analyst import AnalystAgent
 from sns.agents.content import ContentAgent
 from sns.agents.core import UnifiedLLM, make_llm
@@ -33,6 +36,8 @@ from sns.agents.topic import TopicAgent
 from sns.approval import ApprovalGate, ChannelMode
 from sns.config import Config
 from sns.crypto import TokenCipher
+from sns.learning.loop import NullReward, poll_and_store, settle_rewards
+from sns.learning.playbook import PgWritePlaybook
 from sns.notify.discord import discord_sender_from_env
 from sns.publish.dispatch import PlatformDispatch
 from sns.publish.runner import run_pending_publications
@@ -183,6 +188,33 @@ def build_platform_publish(
     return PlatformDispatch(routes)
 
 
+def build_poll_metrics(
+    *,
+    channel: ChannelRow,
+    cipher: TokenCipher,
+    env: Mapping[str, str] | None = None,
+) -> Any:
+    """채널 플랫폼의 지표 폴러 (PollMetrics 계약, FR-L1)."""
+    env = os.environ if env is None else env
+    if channel.platform == "instagram":
+        return InstagramInsights(access_token=token_provider(cipher, channel))
+    client_secret = Path(env.get("YT_CLIENT_SECRET", "secrets/yt_client_secret.json"))
+    token = Path(env.get("YT_TOKEN", "secrets/yt_token.json"))
+    return YouTubeMetrics(build_youtube_analytics(load_credentials(client_secret, token)))
+
+
+def run_metrics_slot(conn: psycopg.Connection, poll_metrics: Any) -> tuple[int, int]:
+    """지표 슬롯 1회: 도래 창 폴링·적재 → reward 정산(NullReward=판정 보류).
+
+    반환: (폴링한 창 수, 정산한 publication 수). 산식 계수 사전등록 후
+    reward_fn만 교체하면 학습이 켜진다(spec §7 미결정 유지).
+    """
+    reward_fn = NullReward()
+    outcomes = poll_and_store(conn, poll_metrics)
+    settled = settle_rewards(conn, reward_fn, formula_version=reward_fn.formula_version)
+    return len(outcomes), settled
+
+
 def build_agent_publish_tool(
     conn: psycopg.Connection,
     *,
@@ -282,8 +314,8 @@ def main() -> None:
             publish=build_agent_publish_tool(
                 conn, channel=channel, inner=adapters, notify=_as_text_notify(notify)
             ),
-            poll_metrics=_unwired_poll_metrics,
-            write_playbook=_unwired_write_playbook,
+            poll_metrics=build_poll_metrics(channel=channel, cipher=cipher),
+            write_playbook=PgWritePlaybook(conn),
         )
         orchestrator = build_orchestrator(tools, llm=make_llm("judgment"))
         target = CycleTarget(
@@ -315,14 +347,6 @@ def _as_text_notify(
         sender({"content": text[:1900]})
 
     return notify
-
-
-def _unwired_poll_metrics(platform: str, post_id: str, window_index: int) -> tuple[Any, ...]:
-    raise NotImplementedError("poll_metrics 실배선은 후속 증분(IG 인사이트·YT 애널리틱스)")
-
-
-def _unwired_write_playbook(scope: str, guidance: str, scope_ref: str | None = None) -> Any:
-    raise NotImplementedError("write_playbook DB 착지는 후속 증분(playbook 스토어)")
 
 
 if __name__ == "__main__":
