@@ -52,6 +52,8 @@ ignore = ["PIE790"]
 "src/sns/research/sources/naver_datalab.py" = ["DTZ011"]
 "src/sns/render/video/*.py" = ["PLW1510", "RUF028", "ISC004"]
 "tests/test_notify_discord.py" = ["PYI034"]
+"tests/test_google_trends.py" = ["PYI034"]
+"tests/test_research_sources.py" = ["PYI034"]
 
 [tool.mypy]
 python_version = "3.12"
