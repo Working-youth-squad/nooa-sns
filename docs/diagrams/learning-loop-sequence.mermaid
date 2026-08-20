@@ -1,0 +1,32 @@
+%% 대응 요구사항: FR-C1·C4·C5, FR-O3, NFR-1·NFR-3
+%% 학습 루프 — 지표 폴링 → reward → 분석글(정직 귀인) → 플레이북 → 다음 사이클 반영
+sequenceDiagram
+    participant Sched as 슬롯 스케줄러 (지표 창 6h/24h/72h)
+    participant Analyst as Analyst CodeAct (샌드박스 내)
+    participant Growth as Growth CodeAct (샌드박스 내)
+    participant Tools as 툴 계약 (poll_metrics/read_stats/write_playbook)
+    participant DB as PostgreSQL
+    participant Ext as 플랫폼 API (IG Insights / YouTube Analytics)
+
+    Sched->>Analyst: 지표 창 도래 트리거
+    Analyst->>Tools: poll_metrics(window_index)
+    Tools->>Ext: 공식 지표 조회
+    Ext-->>Tools: 지표 (결측 가능)
+    Note over Tools,DB: NFR-3 missing=NULL — 결측을 0으로 채우지 않음 (CHECK)
+    Tools->>DB: metric_observation + metric_value
+    Note over DB: reward 산출은 코드만 (수치=코드, LLM=서술)
+    Tools->>DB: reward 기록 (NULL 허용=학습 제외)
+
+    Analyst->>Tools: 착지점 기록 — analysis_note.body (FR-C4)
+    Note over Analyst: 정직 귀인 — 근거 부족 시 insufficient_evidence 플래그
+    Tools->>DB: INSERT analysis_note
+
+    Analyst->>Tools: write_playbook()
+    Note over Tools: 착지점 — playbook.guidance (FR-C4)
+    Tools->>DB: playbook 버전 갱신 + topic_stats 집계(코드)
+
+    Sched->>Growth: 다음 사이클 시작 전
+    Growth->>Tools: read_stats()
+    Tools-->>Growth: TopicStat (밴딧 입력)
+    Growth->>DB: cycle.decision — 다음 변형 선택 (via 툴)
+    Note over Analyst,DB: 전 과정 run_event 브리지 (FR-C5) — 리플레이 재현의 근거 (NFR-1)

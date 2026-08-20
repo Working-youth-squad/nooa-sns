@@ -1,0 +1,46 @@
+%% 대응 요구사항: FR-C1·C2·C4·C5·C6, FR-S1~S3, FR-O2·O3, NFR-2
+%% 발행 사이클 — 슬롯 트리거 → Orchestrator(CodeAct 완전 자율 계획) → 서브에이전트 위임 → 툴 계약 → 멱등 발행
+sequenceDiagram
+    participant Sched as 슬롯 스케줄러 (FR-O1, 샌드박스 밖)
+    participant Orch as Orchestrator CodeAct (Docker 샌드박스 내)
+    participant Sub as 서브에이전트 Topic/Content/Media (CodeAct)
+    participant Tools as 툴 계약 6종 (contracts.py, 불변식 강제)
+    participant DB as PostgreSQL (15 테이블)
+    participant Ext as 외부 API (IG Graph / YouTube / 트렌드)
+    participant Human as 운영자 (Discord)
+
+    Sched->>Orch: 사이클 트리거 (트리거만, 계획 없음)
+    Note over Orch: FR-S1 격리 확인, 불가 시 fail-closed 거부
+    Orch->>DB: cycle 생성 (via 툴)
+    Note over Orch: FR-C6 완전 자율 계획 — 순서·병렬·스킵·재시도를 CodeAct가 결정
+    Orch->>Sub: 위임 (asyncio.gather 병렬 허용)
+    Sub->>Tools: research_trends() / read_stats()
+    Tools->>Ext: 트렌드 소스 조회 (이그레스 화이트리스트 FR-S2)
+    Tools-->>Sub: TrendDigest / TopicStat (타입 계약)
+    Sub->>Tools: 착지점 기록 — content_item.body (FR-C4)
+    Tools->>DB: INSERT content_item / media_asset(checksum)
+    Note over Orch,DB: 모든 에이전트 호출·iteration·비용 → run_event 브리지 (FR-C5)
+
+    alt 서브에이전트 실패 (FR-C6 격리)
+        Sub--xOrch: 예외 (구조화 출력 검증 상한 초과 등)
+        Orch->>DB: run_event 기록, 해당 채널만 스킵/재시도
+    end
+
+    alt hybrid 계정 (FR-O2)
+        Orch->>DB: publication status=needs_review
+        Orch->>Human: Discord 알림
+        Human-->>DB: 승인 (승인 전 publish 호출 0건)
+    else auto 계정
+        Orch->>DB: publication status=approved
+    end
+
+    Orch->>Tools: publish() (Publisher 에이전트 경유)
+    Note over Tools: NFR-2 멱등 상태머신 + FR-S3 시크릿 복호화는 툴 내부만
+    Tools->>Ext: 공식 API 발행 (IG Graph / YouTube Data v3)
+    Ext-->>Tools: post_id / video_id
+    Tools->>DB: publish_attempt 상태 전이 + publication 갱신
+
+    alt 비용 cap 초과 (FR-O3, K4)
+        Tools--xOrch: cost cap 초과
+        Orch->>DB: 자율 발행 중단 기록
+    end

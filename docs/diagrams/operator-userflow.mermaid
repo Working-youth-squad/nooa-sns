@@ -1,0 +1,35 @@
+%% 대응 요구사항: FR-O1~O3, FR-S1, FR-C6, NFR-4 · 원본 계승: FR-E(실험), FR-W(웹/알림), K2~K4
+%% 운영자 플로우 — 설정 → 무인 사이클 관찰 → hybrid 승인 → 인사이트 → kill criteria 대응
+flowchart TD
+    A[초기 설정 시작] --> B[채널 연결: IG 2 + YT 2<br/>OAuth 토큰 암호화 저장 NFR-4]
+    B --> C[계정 모드 지정<br/>auto x2 / hybrid x2 FR-E1]
+    C --> D[슬롯 스케줄 등록 FR-O1<br/>미결정: 상주 러너 vs GHA cron]
+    D --> E[무인 사이클 자동 실행<br/>Orchestrator 완전 자율 FR-C6]
+
+    E -->|샌드박스 격리 불가| E1[fail-closed 실행 거부 FR-S1<br/>Discord 오류 알림]
+    E1 --> Z1[운영자 인프라 점검] --> D
+
+    E --> F{계정 모드}
+    F -->|auto| G[자동 발행 완료<br/>운영자 개입 없음]
+    F -->|hybrid| H[needs_review 발생<br/>Discord 승인 요청 FR-O2]
+
+    H --> I{운영자 판단}
+    I -->|승인| J[발행 진행 - 멱등 NFR-2]
+    I -->|수정 후 승인| K[문안 수정 edited_by_human 기록] --> J
+    I -->|거부| L[발행 보류<br/>사이클은 실패 아님 - 기록만]
+    I -->|무응답| L2[보류 유지 - 승인 전 publish 0건]
+
+    G --> M[지표 창 6h/24h/72h 자동 폴링]
+    J --> M
+    M --> N[인사이트 열람<br/>웹 탭 or 리포트: reward·분석글·플레이북]
+    N -->|표본 부족| N1[판정 보류 NULL 표시<br/>빈 상태: 데이터 수집 중]
+
+    N --> O{kill criteria 감지}
+    O -->|K2 학습 무효| P[밴딧 비활성 → 고정 플레이북 폴백]
+    O -->|K3 품질 붕괴| Q[발행 중단 → 템플릿/대본 개선]
+    O -->|K4 비용 초과 FR-O3| R[자율 발행 중단<br/>원인 규명 전 재개 금지]
+    O -->|정상| E
+
+    P --> E
+    Q --> Z2[운영자 개선 작업] --> E
+    R --> Z3[운영자 비용 원인 분석] --> D
