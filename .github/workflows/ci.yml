@@ -9,6 +9,22 @@ jobs:
   test:
     # nooa는 fcntl 의존으로 Linux/macOS 전용 — CI가 정본 검증 환경 (Windows 로컬은 Docker 경유)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: sns
+          POSTGRES_PASSWORD: sns
+          POSTGRES_DB: sns
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sns"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    env:
+      DATABASE_URL: postgresql://sns:sns@localhost:5432/sns
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5

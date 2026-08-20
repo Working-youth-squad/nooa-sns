@@ -9,8 +9,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from sns.store import CycleStore, EventKind
+
 # event_type 부분 문자열 → run_event.kind (스키마 enum 준수)
-_KIND_BY_SUBSTRING: tuple[tuple[str, str], ...] = (
+_KIND_BY_SUBSTRING: tuple[tuple[str, EventKind], ...] = (
     ("AgentCall", "agent_called"),
     ("ToolCall", "tool_called"),
     ("LLMCallEnd", "cost"),
@@ -20,16 +22,28 @@ _KIND_BY_SUBSTRING: tuple[tuple[str, str], ...] = (
 
 @dataclass(frozen=True)
 class RunEvent:
-    kind: str
+    kind: EventKind
     payload: dict[str, Any]
     cost_usd: float | None = None
 
 
+def store_sink(store: CycleStore, cycle_id: str) -> Callable[["RunEvent"], None]:
+    """RunEvent를 CycleStore.log_event로 즉시 착지시키는 싱크 (FR-C5 DB 원장)."""
+
+    def sink(event: RunEvent) -> None:
+        store.log_event(
+            cycle_id=cycle_id, kind=event.kind, payload=event.payload, cost_usd=event.cost_usd
+        )
+
+    return sink
+
+
 @dataclass
 class RunEventRecorder:
-    """append-only 수집기 — DB 착지(PgCycleStore) 전 단계의 인메모리 원장."""
+    """append-only 수집기 — 인메모리 원장 + 선택적 싱크(store_sink로 DB 착지)."""
 
     events: list[RunEvent] = field(default_factory=list)
+    sink: Callable[[RunEvent], None] | None = None
 
     def kinds(self) -> list[str]:
         return [e.kind for e in self.events]
@@ -38,7 +52,10 @@ class RunEventRecorder:
         event_type = str(getattr(event, "event_type", type(event).__name__))
         for needle, kind in _KIND_BY_SUBSTRING:
             if needle in event_type:
-                self.events.append(RunEvent(kind=kind, payload=self._payload(event, event_type)))
+                run_event = RunEvent(kind=kind, payload=self._payload(event, event_type))
+                self.events.append(run_event)
+                if self.sink is not None:
+                    self.sink(run_event)
                 return
         # 열거 외 이벤트는 기록하지 않음 (스키마 enum 밖 kind 생성 금지)
 

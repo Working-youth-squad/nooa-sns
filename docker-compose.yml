@@ -1,0 +1,25 @@
+# 로컬 풀스택 — PostgreSQL 16 + 앱(샌드박스 컨테이너, FR-S1)
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: sns
+      POSTGRES_PASSWORD: sns
+      POSTGRES_DB: sns
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sns"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SNS_SANDBOX: "1" # FR-S1 게이트 선언 — 이 컨테이너 안에서만 CodeAct 실행
+      DATABASE_URL: postgresql://sns:sns@db:5432/sns
+    command: ["uv", "run", "pytest", "-q"]

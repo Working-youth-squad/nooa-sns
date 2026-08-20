@@ -8,8 +8,10 @@ authors = [
 ]
 requires-python = ">=3.12,<3.14"
 dependencies = [
+    "cryptography>=44",
     # NFR-5: Alpha API 변동 흡수 — 정확 버전 고정, 업그레이드는 어댑터(FR-C8) 수정 PR로만
     "nooa==0.0.9",
+    "psycopg[binary]>=3.2",
 ]
 
 [build-system]
